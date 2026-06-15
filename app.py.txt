@@ -1,0 +1,231 @@
+import streamlit as st
+from ultralytics import YOLO
+from PIL import Image
+import cv2
+import numpy as np
+import tempfile
+import base64
+import os
+
+# ============================================================
+# PAGE CONFIGURATION
+# ============================================================
+st.set_page_config(
+    page_title="Palm Leaf Nutrient Detection",
+    layout="wide"
+)
+
+# ============================================================
+# BACKGROUND IMAGE FUNCTION (FIXED FOR YOUR WEBP ASSET)
+# ============================================================
+def add_bg_from_local(image_file):
+    if not os.path.exists(image_file):
+        st.sidebar.warning(f"Background image '{image_file}' not found.")
+        return
+
+    with open(image_file, "rb") as image:
+        encoded = base64.b64encode(image.read()).decode()
+
+    st.markdown(
+        f"""
+        <style>
+        .stApp {{
+            background-image: url("data:image/webp;base64,{encoded}");
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+        }}
+        .main {{
+            background-color: rgba(255,255,255,0.82);
+            padding: 25px;
+            border-radius: 20px;
+        }}
+        section[data-testid="stSidebar"] {{
+            background-color: rgba(0, 60, 0, 0.75);
+        }}
+        h1 {{
+            color: #0b5e16;
+            text-align: center;
+            font-size: 42px;
+        }}
+        h2, h3 {{
+            color: #0b5e16;
+        }}
+        [data-testid="stFileUploader"] {{
+            background-color: rgba(255,255,255,0.85);
+            padding: 15px;
+            border-radius: 15px;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+# Cleaned Relative Path to match your local folder exactly
+add_bg_from_local("agriculture background.webp")
+
+# ============================================================
+# LANGUAGE BUTTONS
+# ============================================================
+st.sidebar.title("🌐 Select Language")
+col1, col2, col3 = st.sidebar.columns(3)
+
+if "language" not in st.session_state:
+    st.session_state.language = "English"
+
+with col1:
+    if st.button("English"):
+        st.session_state.language = "English"
+with col2:
+    if st.button("తెలుగు"):
+        st.session_state.language = "తెలుగు"
+with col3:
+    if st.button("हिन्दी"):
+        st.session_state.language = "हिन्दी"
+
+language = st.session_state.language
+
+# ============================================================
+# MULTI LANGUAGE TEXT
+# ============================================================
+if language == "English":
+    title = "🌴 Palm Oil Leaf Nutrient Stress Detection"
+    upload_text = "📤 Upload Palm Leaf Image"
+    result_text = "✅ Detection Result"
+    details_text = "📊 Prediction Details"
+    no_detect = "No nutrient stress detected."
+    solution_heading = "🌱 Solution Suggestions"
+    guide_title = "📘 Visual Identification Hints"
+elif language == "తెలుగు":
+    title = "🌴 పామ్ ఆయిల్ ఆకుల పోషక లోప గుర్తింపు"
+    upload_text = "📤 ఆకుల చిత్రాన్ని అప్లోడ్ చేయండి"
+    result_text = "✅ గుర్తింపు ఫలితం"
+    details_text = "📊 అంచనా వివరాలు"
+    no_detect = "పోషక లోపం గుర్తించబడలేదు."
+    solution_heading = "🌱 పరిష్కార సూచనలు"
+    guide_title = "📘 ఆకుల గుర్తింపు సూచనలు"
+else:
+    title = "🌴 पाम ऑयल पत्ती पोषक तत्व कमी पहचान"
+    upload_text = "📤 पत्ती की छवि अपलोड करें"
+    result_text = "✅ पहचान परिणाम"
+    details_text = "📊 भविष्यवाणी विवरण"
+    no_detect = "कोई पोषक तत्व कमी नहीं मिली।"
+    solution_heading = "🌱 समाधान सुझाव"
+    guide_title = "📘 दृश्य पहचान संकेत"
+
+st.title(title)
+st.info("Upload a palm oil leaf image to detect nutrient stress regions, draw bounding boxes, and display confidence scores.")
+
+# ============================================================
+# LOAD MODEL
+# ============================================================
+model_path = "best.pt"
+if not os.path.exists(model_path):
+    st.error(f"🚨 Model weight file '{model_path}' not found!")
+else:
+    model = YOLO(model_path)
+
+# ============================================================
+# FILE UPLOADER & INFERENCE
+# ============================================================
+uploaded_file = st.file_uploader(upload_text, type=["jpg", "jpeg", "png"])
+
+if uploaded_file is not None and os.path.exists(model_path):
+    image = Image.open(uploaded_file)
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_file:
+        image.save(temp_file.name)
+        temp_path = temp_file.name
+
+    results = model.predict(source=temp_path, conf=0.3, save=False)
+    result = results[0]
+    img = cv2.imread(temp_path)
+
+    boxes = result.boxes.xyxy.cpu().numpy()
+    scores = result.boxes.conf.cpu().numpy()
+    classes = result.boxes.cls.cpu().numpy()
+    detected_classes = []
+
+    for box, score, cls in zip(boxes, scores, classes):
+        x1, y1, x2, y2 = map(int, box)
+        class_name = model.names[int(cls)]
+        detected_classes.append(class_name)
+        label = f"{class_name} {score:.2f}"
+        cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        cv2.putText(img, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+
+    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("📷 Uploaded Image")
+        st.image(image, use_container_width=True)
+    with col2:
+        st.subheader(result_text)
+        st.image(img_rgb, use_container_width=True)
+
+    st.subheader(details_text)
+    if len(boxes) == 0:
+        st.warning(no_detect)
+    else:
+        for score, cls in zip(scores, classes):
+            class_name = model.names[int(cls)]
+            accuracy = score * 100
+            if language == "English":
+                st.success(f"🌿 Predicted Problem: {class_name}\n\n🎯 Confidence Score: {score:.4f}\n\n📈 Accuracy: {accuracy:.2f}%")
+            elif language == "తెలుగు":
+                st.success(f"🌿 గుర్తించిన సమస్య: {class_name}\n\n🎯 నమ్మక స్కోర్: {score:.4f}\n\n📈 ఖచ్చితత్వం: {accuracy:.2f}%")
+            else:
+                st.success(f"🌿 पहचानी गई समस्या: {class_name}\n\n🎯 कॉन्फिडेंस स्कोर: {score:.4f}\n\n📈 सटीकता: {accuracy:.2f}%")
+
+    st.subheader(solution_heading)
+    for detected in set(detected_classes):
+        if language == "English":
+            if detected == "Healthy":
+                st.success("✅ Healthy Leaf\n\n• Continue irrigation\n• Balanced nutrients")
+            elif detected == "nitrogen":
+                st.error("❌ Nitrogen Deficiency\n\n• Apply urea or ammonium sulfate")
+            elif detected == "mg":
+                st.warning("⚠ Magnesium Deficiency\n\n• Apply magnesium sulfate (Epsom salt)")
+            elif detected == "kalium":
+                st.warning("⚠ Potassium Deficiency\n\n• Apply muriate of potash (MOP)")
+            elif detected == "boron":
+                st.warning("⚠ Boron Deficiency\n\n• Apply borax fertilizer")
+        elif language == "తెలుగు":
+            if detected == "Healthy":
+                st.success("✅ ఆరోగ్యకరమైన ఆకు\n\n• సరైన నీటి యాజమాన్యం కొనసాగించండి")
+            elif detected == "nitrogen":
+                st.error("❌ నైట్రోజన్ లోపం\n\n• యూరియా ఎరువు ఉపయోగించండి")
+            elif detected == "mg":
+                st.warning("⚠ మెగ్నీషియం లోపం\n\n• ఎప్సమ్ సాల్ట్ స్ప్రే చేయండి")
+            elif detected == "kalium":
+                st.warning("⚠ పొటాషియం లోపం\n\n• పొటాషియం ఎరువులు వేయండి")
+            elif detected == "boron":
+                st.warning("⚠ బోరాన్ లోపం\n\n• బోరాన్ మైక్రోన్యూట్రియెంట్ స్ప్రే చేయండి")
+        else:
+            if detected == "Healthy":
+                st.success("✅ स्वस्थ पत्ती\n\n• संतुलित पोषक तत्व बनाए रखें")
+            elif detected == "nitrogen":
+                st.error("❌ नाइट्रोजन की कमी\n\n• यूरिया का उपयोग करें")
+            elif detected == "mg":
+                st.warning("⚠ मैग्नीशियम की कमी\n\n• एप्सम साल्ट का छिड़काव करें")
+            elif detected == "kalium":
+                st.warning("⚠ पोटेशियम की कमी\n\n• पोटेशियम उर्वरक डालें")
+            elif detected == "boron":
+                st.warning("⚠ बोरॉन की कमी\n\n• बोरॉन का छिड़काव करें")
+
+    if os.path.exists(temp_path):
+        os.remove(temp_path)
+
+# ============================================================
+# VISUAL IDENTIFICATION GUIDE
+# ============================================================
+st.header(guide_title)
+if language == "English":
+    st.write("1️⃣ Healthy: Green | 2️⃣ Nitrogen: Pale yellow | 3️⃣ Mg: Yellow veins | 4️⃣ Potassium: Burnt margins | 5️⃣ Boron: Twisted shape")
+elif language == "తెలుగు":
+    st.write("1️⃣ హెల్తీ: ఆకుపచ్చ | 2️⃣ నైట్రోజన్: పసుపు రంగు | 3️⃣ మెగ్నీషియం: నరాల పసుపు | 4️⃣ పొటాషియం: కాలిన అంచులు | 5️⃣ బోరాన్: వంకర ఆకులు")
+else:
+    st.write("1️⃣ स्वस्थ: हरा | 2️⃣ नाइट्रोजन: पीलापन | 3️⃣ मैग्नीशियम: नसों का पीलापन | 4️⃣ पोटेशियम: जले किनारे | 5️⃣ बोरॉन: मुड़ी हुई पत्तियां")
+
+st.divider()
+st.caption("Palm Oil Leaf Nutrient Stress Detection System | YOLOv8 + Streamlit")
